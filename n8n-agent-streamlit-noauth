@@ -1,0 +1,91 @@
+import streamlit as st
+import requests
+import uuid
+import json
+
+# Page configuration
+st.set_page_config(page_title="LLM Chat Interface", page_icon="💬")
+st.title("Chat with AI")
+
+# Webhook URL for N8N workflow
+WEBHOOK_URL = "https://your-n8n-instance/webhook/path"
+# Bearer token for authentication
+BEARER_TOKEN = "your-secret-token-here"
+
+# Initialize session state for chat history and session ID
+if "messages" not in st.session_state:
+    st.session_state.messages = []
+    
+if "session_id" not in st.session_state:
+    st.session_state.session_id = str(uuid.uuid4())
+
+# Display chat messages
+for message in st.session_state.messages:
+    with st.chat_message(message["role"]):
+        st.write(message["content"])
+
+# Input field for user message
+user_input = st.chat_input("Type your message here...")
+
+if user_input:
+    # Add user message to chat history
+    st.session_state.messages.append({"role": "user", "content": user_input})
+    
+    # Display user message
+    with st.chat_message("user"):
+        st.write(user_input)
+    
+    # Prepare headers and payload for the webhook
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {BEARER_TOKEN}"
+    }
+    
+    payload = {
+        "sessionId": st.session_state.session_id,
+        "chatInput": user_input
+    }
+    
+    # Show a spinner while waiting for the response
+    with st.spinner("Thinking..."):
+        try:
+            # Send POST request to N8N webhook
+            response = requests.post(
+                WEBHOOK_URL,
+                headers=headers,
+                data=json.dumps(payload),
+                timeout=30
+            )
+            
+            # Check if request was successful
+            if response.status_code == 200:
+                try:
+                    # Parse the response JSON
+                    response_data = response.json()
+                    ai_response = response_data.get("output", "Sorry, I couldn't process your request.")
+                    
+                    # Add AI response to chat history
+                    st.session_state.messages.append({"role": "assistant", "content": ai_response})
+                    
+                    # Display AI response
+                    with st.chat_message("assistant"):
+                        st.write(ai_response)
+                        
+                except json.JSONDecodeError:
+                    st.error("Failed to parse response from the server.")
+            else:
+                st.error(f"Error: Received status code {response.status_code} from the server.")
+                
+        except requests.exceptions.RequestException as e:
+            st.error(f"Network error: {str(e)}")
+
+# Add some helpful information at the bottom
+st.sidebar.title("About")
+st.sidebar.info(
+    """
+    This chat interface connects to an AI assistant through an N8N workflow.
+    
+    Your conversation is associated with a unique session ID: 
+    `{}`
+    """.format(st.session_state.session_id)
+)
